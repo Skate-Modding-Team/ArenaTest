@@ -453,7 +453,7 @@ std::vector<uint8_t> UnswizzleCMPR(const std::vector<uint8_t>& data, int width, 
     return untileData;
 }
 
-void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uint8_t> src, int width, int height, int mipMapLevels, int PackedMips, int format, int test) {
+void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uint8_t> src, int width, int height, int mipMapLevels, int PackedMips, int format) {
     //untiles mips. :)
     DirectX::DDS_PIXELFORMAT pixelFormat{};
     std::string gpuFormat = GetGPUTEXTUREFORMAT(format);
@@ -512,9 +512,7 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
             smallestmipsize = 4096;
         }
     }
-    std::cout << filename << "\n";
-    std::cout << "test: " << test << " pitch: " << texelPitch << " smm: " << smallestmipsize << "\n";
-    std::cout << "w: " << width << " h: " << height << " f: " << format << " " << gpuFormat << " m: " << mipMapLevels << "\n";
+    //std::cout << "w: " << width << " h: " << height << " f: " << format << " " << gpuFormat << " m: " << mipMapLevels << "\n";
     if (PackedMips != 0 and mipMapLevels != 0) {
         for (int level = 0; level < mipMapLevels; level++) {
             int sxOffset = 0;
@@ -746,7 +744,7 @@ void getTextureInformationAndUntile(std::string name, std::vector<uint8_t>& buff
     }
 
     int mipMapLevels = MaxMipLevel - MinMipLevel;
-    untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat, Pitch);
+    untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat);
 }
 
 void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer, int curwidth, int curheight, int mipMapLevels, int format) {
