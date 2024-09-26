@@ -251,7 +251,7 @@ std::unordered_map<uint32_t, std::string> objectTypes = {
 
 struct Arena_Magic_Number
 {
-    uint32_t prefix;   //‰RW4
+    uint32_t prefix;   //Â‰RW4
     uint32_t body;     //(platform specification: ps3 + 0x00, xb2 + 0x00, rev + 0x00, win + 0x00)
     uint32_t suffix;   //0x0D0A1A0A
 };
@@ -476,7 +476,7 @@ struct TOC_Entry
     uint32_t Name; //offset from names offset
     uint32_t unknown; //ps3 = 7C 0F 16 78, xbox&wii = 9B 0F 16 78 (???x)
     uint64_t uiGuid;
-    uint32_t Type; //AC 46 2E 4A (¬F.J)
+    uint32_t Type; //AC 46 2E 4A (Â¬F.J)
     uint32_t uiIndex; //index
 };
 
@@ -838,7 +838,7 @@ void processFile(const std::string& filename) {
     read_RW4_textures_and_write_to_DDS(filename);
 }
 
-void processRX2FilesInFolder(const std::string& folderPath) {
+void processFilesInFolder(const std::string& folderPath) {
     try {
         // Check if the folder exists
         if (!fs::exists(folderPath)) {
@@ -868,6 +868,6 @@ void processRX2FilesInFolder(const std::string& folderPath) {
 //for testing purposes
 int main() {
     std::string folderPath = "";
-    processRX2FilesInFolder(folderPath);
+    processFilesInFolder(folderPath);
     return 0;
 }
