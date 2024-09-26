@@ -453,7 +453,7 @@ std::vector<uint8_t> UnswizzleCMPR(const std::vector<uint8_t>& data, int width, 
     return untileData;
 }
 
-void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uint8_t> src, int width, int height, int mipMapLevels, int PackedMips, int format) {
+void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uint8_t> src, int width, int height, int mipMapLevels, int PackedMips, int format, int test) {
     //untiles mips. :)
     DirectX::DDS_PIXELFORMAT pixelFormat{};
     std::string gpuFormat = GetGPUTEXTUREFORMAT(format);
@@ -502,13 +502,20 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
     int chunksize = 4096 * texelPitch / blockSize;
     int smallestmipsize;
     if (compressed) {
-        smallestmipsize = 256 * texelPitch / blockSize; //256 * texelPitch / blockSize
+        smallestmipsize = 256 * texelPitch / blockSize;
     }
     else {
-        smallestmipsize = 2048 * texelPitch / blockSize;
+        if ((height / width >= 4 or width / height >= 4) and gpuFormat == "GPUTEXTUREFORMAT_8_8_8_8") { //this kind of works, but calculate better by aligning to 4096 and using width, height, texelPitch.
+            smallestmipsize = 8192;
+        }
+        else {
+            smallestmipsize = 4096;
+        }
     }
-    //std::cout << "w: " << width << " h: " << height << " f: " << gpuFormat << "\n";
-    if (PackedMips != 0) {
+    std::cout << filename << "\n";
+    std::cout << "test: " << test << " pitch: " << texelPitch << " smm: " << smallestmipsize << "\n";
+    std::cout << "w: " << width << " h: " << height << " f: " << format << " " << gpuFormat << " m: " << mipMapLevels << "\n";
+    if (PackedMips != 0 and mipMapLevels != 0) {
         for (int level = 0; level < mipMapLevels; level++) {
             int sxOffset = 0;
             if (compressed) {
@@ -536,6 +543,7 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
                 //processing smallest mips
                 if (mipWidth <= 16 or mipHeight <= 16) {
                     if (width > height) {
+                        // 16 * width/height * 16
                         //example of this type of scenario
                         //sxOffset
                         //    4   8       16              32
@@ -585,7 +593,7 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
                         //                 ################
                         //                 ################
                         if (mipWidth > 2) {
-                            sxOffset = originalBlockHeight;
+                            sxOffset = originalBlockWidth;
                         }
                         else {
                             sxOffset = 0;
@@ -628,7 +636,7 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
             tiledWidth = mipWidth;
             tiledHeight = mipHeight;
             initialmipSize = max(1, mipWidth) * max(1, mipHeight) * texelPitch;
-            tiledmipSize = initialmipSize;
+            tiledmipSize = Align(initialmipSize, smallestmipsize);
         }
         int endoffsetforsrc = mipLevelOffset + tiledmipSize;
 
@@ -738,7 +746,7 @@ void getTextureInformationAndUntile(std::string name, std::vector<uint8_t>& buff
     }
 
     int mipMapLevels = MaxMipLevel - MinMipLevel;
-    untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat);
+    untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat, Pitch);
 }
 
 void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer, int curwidth, int curheight, int mipMapLevels, int format) {
