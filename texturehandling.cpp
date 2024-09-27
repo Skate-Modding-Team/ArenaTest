@@ -499,19 +499,14 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
         compressed = false;
         texelPitch = 1;
     }
+
     int chunksize = 4096 * texelPitch / blockSize;
     int smallestmipsize;
-    if (compressed) {
-        smallestmipsize = 256 * texelPitch / blockSize;
-    }
-    else {
-        if ((height / width >= 4 or width / height >= 4) and gpuFormat == "GPUTEXTUREFORMAT_8_8_8_8") { //this kind of works, but calculate better by aligning to 4096 and using width, height, texelPitch.
-            smallestmipsize = 8192;
-        }
-        else {
-            smallestmipsize = 4096;
-        }
-    }
+
+    //smallest mip size is calculated based on smallest possible mip arrangement with current aspect ratio aligned to 0x1000.
+    double divisor = static_cast<double>(min(height, width)) / 16;
+    smallestmipsize = Align(static_cast<int>(32 * (static_cast<double>(max(height, width)) / divisor) * texelPitch / blockSize), 4096);
+
     //std::cout << "w: " << width << " h: " << height << " f: " << format << " " << gpuFormat << " m: " << mipMapLevels << "\n";
     if (PackedMips != 0 and mipMapLevels != 0) {
         for (int level = 0; level < mipMapLevels; level++) {
