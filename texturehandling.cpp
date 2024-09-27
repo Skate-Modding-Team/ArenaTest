@@ -346,12 +346,22 @@ bool readDDS(const std::string& filename, std::vector<uint8_t>& textureArray, Di
     return true;
 }
 
-void writeDDS(std::string filename, std::vector<uint8_t> texturearray, int width, int height, int mipMapLevels, DirectX::DDS_PIXELFORMAT pixelFormat)
+void writeDDS(std::string filename, std::vector<uint8_t> texturearray, int width, int height, int mipMapLevels, DirectX::DDS_PIXELFORMAT pixelFormat, std::string gpuDimension, int Depth = 0)
 {
     // Define DDS header using DDS.h structures
     DirectX::DDS_HEADER header{};
     header.size = sizeof(DirectX::DDS_HEADER);
     header.flags = DDS_HEADER_FLAGS_TEXTURE | DDS_HEADER_FLAGS_MIPMAP;
+
+    if (gpuDimension == "GPUDIMENSION_CUBEMAP") {
+        header.flags |= DDS_HEADER_FLAGS_TEXTURE | DDS_HEIGHT; // Add cubemap flag
+        //header.flags |= DDS_HEADER_FLAGS_VOLUME; // Add volume flag
+        header.caps2 = DDS_CUBEMAP_POSITIVEX | DDS_CUBEMAP_NEGATIVEX |
+            DDS_CUBEMAP_POSITIVEY | DDS_CUBEMAP_NEGATIVEY |
+            DDS_CUBEMAP_POSITIVEZ | DDS_CUBEMAP_NEGATIVEZ;
+        //header.depth = Depth;
+    }
+
     header.height = static_cast<uint32_t>(height);
     header.width = static_cast<uint32_t>(width);
     header.pitchOrLinearSize = 0;
@@ -453,12 +463,13 @@ std::vector<uint8_t> UnswizzleCMPR(const std::vector<uint8_t>& data, int width, 
     return untileData;
 }
 
-void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uint8_t> src, int width, int height, int mipMapLevels, int PackedMips, int format) {
+void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uint8_t> src, int width, int height, int mipMapLevels, int PackedMips, int format, int Depth, std::string gpuDimension) {
     //untiles mips. :)
     DirectX::DDS_PIXELFORMAT pixelFormat{};
     std::string gpuFormat = GetGPUTEXTUREFORMAT(format);
     pixelFormat = GetDDSTEXTUREFORMAT(format);
     std::vector<uint8_t> dst;
+
     int blockSize = 0;
     int texelPitch = 0;
     int mipWidth = width;
@@ -500,6 +511,10 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
         texelPitch = 1;
     }
 
+    //add cubemap stuff
+    int numFaces = gpuDimension == "GPUDIMENSION_CUBEMAP" ? 6 : 1; //if cubemap have 6 faces.
+    std::vector<std::vector<uint8_t>> textures(numFaces);
+
     int chunksize = 4096 * texelPitch / blockSize;
     int smallestmipsize;
 
@@ -508,9 +523,12 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
     smallestmipsize = Align(static_cast<int>(32 * (static_cast<double>(max(height, width)) / divisor) * texelPitch / blockSize), 4096);
 
     //std::cout << "w: " << width << " h: " << height << " f: " << format << " " << gpuFormat << " m: " << mipMapLevels << "\n";
-    if (PackedMips != 0 and mipMapLevels != 0) {
-        for (int level = 0; level < mipMapLevels; level++) {
-            int sxOffset = 0;
+    if (mipMapLevels == 0) {
+        mipMapLevels = 1;
+    }
+    for (int level = 0; level < mipMapLevels; level++) {
+        int sxOffset = 0;
+        for (int face = 0; face < numFaces; face++) {
             if (compressed) {
                 tiledWidth = Align(mipWidth, 128);
                 tiledHeight = Align(mipHeight, 128);
@@ -601,57 +619,24 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
             if (mipdst.size() < 0x80) {
                 mipdst.resize(0x80);
             }
-
-            dst.insert(dst.end(), mipdst.begin(), mipdst.begin() + initialmipSize);
+            textures[face].insert(textures[face].end(), mipdst.begin(), mipdst.begin() + initialmipSize);
             mipdst.clear();
-
-            mipWidth /= 2;
-            mipHeight /= 2;
-            mipWidth = max(1, mipWidth);
-            mipHeight = max(1, mipHeight);
 
             if (src.size() > mipLevelOffset + tiledmipSize) {
                 mipLevelOffset += tiledmipSize;
             }
-
             mipsrc.clear();
         }
-    }
-    else {
-        int sxOffset = 0;
-        if (compressed) {
-            tiledWidth = Align(mipWidth, 128);
-            tiledHeight = Align(mipHeight, 128);
-            initialmipSize = max(1, ((mipWidth + 3) / 4)) * max(1, ((mipHeight + 3) / 4)) * texelPitch;
-            tiledmipSize = max(1, ((tiledWidth + 3) / 4)) * max(1, ((tiledHeight + 3) / 4)) * texelPitch;
-        }
-        else {
-            tiledWidth = mipWidth;
-            tiledHeight = mipHeight;
-            initialmipSize = max(1, mipWidth) * max(1, mipHeight) * texelPitch;
-            tiledmipSize = Align(initialmipSize, smallestmipsize);
-        }
-        int endoffsetforsrc = mipLevelOffset + tiledmipSize;
 
-        std::vector<uint8_t> mipsrc(src.begin() + mipLevelOffset, src.begin() + endoffsetforsrc);
-
-        int tiledBlockWidth = tiledWidth / blockSize;
-        int originalBlockWidth = mipWidth / blockSize;
-        int tiledBlockHeight = tiledHeight / blockSize;
-        int originalBlockHeight = mipHeight / blockSize;
-
-        std::vector<uint8_t> mipdst = UntileCompressedXbox360Texture(mipsrc, tiledBlockWidth, originalBlockWidth, tiledBlockHeight,
-            originalBlockHeight, texelPitch, sxOffset, syOffset);
-        if (mipdst.size() < 0x80) {
-            mipdst.resize(0x80);
-        }
-
-        dst.insert(dst.end(), mipdst.begin(), mipdst.begin() + initialmipSize);
-        mipdst.clear();
-        mipsrc.clear();
+        mipWidth = max(1, mipWidth / 2);
+        mipHeight = max(1, mipHeight / 2);
     }
 
-    writeDDS(filename, dst, width, height, mipMapLevels, pixelFormat);
+    for (int face = 0; face < numFaces; face++) {
+        dst.insert(dst.end(), textures[face].begin(), textures[face].end());
+    }
+
+    writeDDS(filename, dst, width, height, mipMapLevels, pixelFormat, gpuDimension, Depth);
     dst.clear();
 }
 
@@ -719,27 +704,84 @@ void getTextureInformationAndUntile(std::string name, std::vector<uint8_t>& buff
     int TriClamp = extractValue(GPUTEXTURE + 20, 2, 27);
     bool ForceBCWtoMax = extractValue(GPUTEXTURE + 20, 1, 29);
     int BorderColor = extractValue(GPUTEXTURE + 20, 2, 30);
+    std::string gpuDimension;
 
     if (Dimension == 1) { // GPUDIMENSION_2D, TwoD
         Width = extractDwordValue(Size, 13, 0) + 1;
         Height = extractDwordValue(Size, 13, 13) + 1;
+        gpuDimension = "GPUDIMENSION_2D";
     }
     else if (Dimension == 0) { // GPUDIMENSION_1D, OneD
         Width = extractDwordValue(Size, 24, 0) + 1;
+        gpuDimension = "GPUDIMENSION_1D";
     }
     else if (Dimension == 2) { // GPUDIMENSION_3D, ThreeD
         Width = extractDwordValue(Size, 11, 0) + 1;
         Height = extractDwordValue(Size, 11, 11) + 1;
         Depth = extractDwordValue(Size, 10, 21) + 1;
+        gpuDimension = "GPUDIMENSION_3D";
     }
     else if (Dimension == 3) { // GPUDIMENSION_CUBEMAP, Stack
         Width = extractDwordValue(Size, 13, 0) + 1;
         Height = extractDwordValue(Size, 13, 13) + 1;
         Depth = extractDwordValue(Size, 6, 19) + 1;
+        gpuDimension = "GPUDIMENSION_CUBEMAP";
     }
 
+    std::cout << "Tiled: " << Tiled << "\n";
+    std::cout << "Pitch: " << Pitch << "\n";
+    std::cout << "Padding: " << Padding << "\n";
+    std::cout << "MultiSample: " << MultiSample << "\n";
+    std::cout << "ClampZ: " << ClampZ << "\n";
+    std::cout << "ClampY: " << ClampY << "\n";
+    std::cout << "ClampX: " << ClampX << "\n";
+    std::cout << "SignW: " << SignW << "\n";
+    std::cout << "SignZ: " << SignZ << "\n";
+    std::cout << "SignY: " << SignY << "\n";
+    std::cout << "SignX: " << SignX << "\n";
+    std::cout << "Type: " << Type << "\n";
+    std::cout << "BaseAddress: " << BaseAddress << "\n";
+    std::cout << "ClampPolicy: " << ClampPolicy << "\n";
+    std::cout << "Stacked: " << Stacked << "\n";
+    std::cout << "RequestSize: " << RequestSize << "\n";
+    std::cout << "Endian: " << Endian << "\n";
+    std::cout << "DataFormat: " << DataFormat << "\n";
+    std::cout << "Size: " << Size << "\n";
+    std::cout << "Width: " << Width << "\n";
+    std::cout << "Height: " << Height << "\n";
+    std::cout << "Depth: " << Depth << "\n";
+    std::cout << "BorderSize: " << BorderSize << "\n";
+    std::cout << "PaddingDword3: " << PaddingDword3 << "\n";
+    std::cout << "AnisoFilter: " << AnisoFilter << "\n";
+    std::cout << "MipFilter: " << MipFilter << "\n";
+    std::cout << "MinFilter: " << MinFilter << "\n";
+    std::cout << "MagFilter: " << MagFilter << "\n";
+    std::cout << "ExpAdjust: " << ExpAdjust << "\n";
+    std::cout << "SwizzleW: " << SwizzleW << "\n";
+    std::cout << "SwizzleZ: " << SwizzleZ << "\n";
+    std::cout << "SwizzleY: " << SwizzleY << "\n";
+    std::cout << "SwizzleX: " << SwizzleX << "\n";
+    std::cout << "NumFormat: " << NumFormat << "\n";
+    std::cout << "GradExpAdjustV: " << GradExpAdjustV << "\n";
+    std::cout << "GradExpAdjustH: " << GradExpAdjustH << "\n";
+    std::cout << "LODBias: " << LODBias << "\n";
+    std::cout << "MinAnisoWalk: " << MinAnisoWalk << "\n";
+    std::cout << "MagAnisoWalk: " << MagAnisoWalk << "\n";
+    std::cout << "MaxMipLevel: " << MaxMipLevel << "\n";
+    std::cout << "MinMipLevel: " << MinMipLevel << "\n";
+    std::cout << "VolMinFilter: " << VolMinFilter << "\n";
+    std::cout << "VolMagFilter: " << VolMagFilter << "\n";
+    std::cout << "MipAddress: " << MipAddress << "\n";
+    std::cout << "PackedMips: " << PackedMips << "\n";
+    std::cout << "Dimension: " << Dimension << "\n";
+    std::cout << "AnisoBias: " << AnisoBias << "\n";
+    std::cout << "TriClamp: " << TriClamp << "\n";
+    std::cout << "ForceBCWtoMax: " << ForceBCWtoMax << "\n";
+    std::cout << "BorderColor: " << BorderColor << "\n";
+    std::cout << "\n";
+
     int mipMapLevels = MaxMipLevel - MinMipLevel;
-    untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat);
+    untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat, Depth, gpuDimension);
 }
 
 void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer, int curwidth, int curheight, int mipMapLevels, int format) {
@@ -748,10 +790,10 @@ void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer
     if (ps3It != pixelFormatsPS3.end()) {
         pixelFormat = ps3It->second;
     }
-    writeDDS(filename, buffer, curwidth, curheight, mipMapLevels, pixelFormat);
+    writeDDS(filename, buffer, curwidth, curheight, mipMapLevels, pixelFormat, "GPUDIMENSION_2D");
 }
 
 void unswizzle_wii_textures_and_write_to_DDS(std::string filename, const std::vector<uint8_t>& data, int width, int height, int mipMapLevels, DirectX::DDS_PIXELFORMAT pixelFormat) {
     std::vector<uint8_t> unswizzledData = UnswizzleCMPR(data, width, height);
-    writeDDS(filename, unswizzledData, width, height, mipMapLevels, pixelFormat);
+    writeDDS(filename, unswizzledData, width, height, mipMapLevels, pixelFormat, "GPUDIMENSION_2D");
 }
