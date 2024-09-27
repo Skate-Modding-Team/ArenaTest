@@ -728,58 +728,6 @@ void getTextureInformationAndUntile(std::string name, std::vector<uint8_t>& buff
         gpuDimension = "GPUDIMENSION_CUBEMAP";
     }
 
-    std::cout << "Tiled: " << Tiled << "\n";
-    std::cout << "Pitch: " << Pitch << "\n";
-    std::cout << "Padding: " << Padding << "\n";
-    std::cout << "MultiSample: " << MultiSample << "\n";
-    std::cout << "ClampZ: " << ClampZ << "\n";
-    std::cout << "ClampY: " << ClampY << "\n";
-    std::cout << "ClampX: " << ClampX << "\n";
-    std::cout << "SignW: " << SignW << "\n";
-    std::cout << "SignZ: " << SignZ << "\n";
-    std::cout << "SignY: " << SignY << "\n";
-    std::cout << "SignX: " << SignX << "\n";
-    std::cout << "Type: " << Type << "\n";
-    std::cout << "BaseAddress: " << BaseAddress << "\n";
-    std::cout << "ClampPolicy: " << ClampPolicy << "\n";
-    std::cout << "Stacked: " << Stacked << "\n";
-    std::cout << "RequestSize: " << RequestSize << "\n";
-    std::cout << "Endian: " << Endian << "\n";
-    std::cout << "DataFormat: " << DataFormat << "\n";
-    std::cout << "Size: " << Size << "\n";
-    std::cout << "Width: " << Width << "\n";
-    std::cout << "Height: " << Height << "\n";
-    std::cout << "Depth: " << Depth << "\n";
-    std::cout << "BorderSize: " << BorderSize << "\n";
-    std::cout << "PaddingDword3: " << PaddingDword3 << "\n";
-    std::cout << "AnisoFilter: " << AnisoFilter << "\n";
-    std::cout << "MipFilter: " << MipFilter << "\n";
-    std::cout << "MinFilter: " << MinFilter << "\n";
-    std::cout << "MagFilter: " << MagFilter << "\n";
-    std::cout << "ExpAdjust: " << ExpAdjust << "\n";
-    std::cout << "SwizzleW: " << SwizzleW << "\n";
-    std::cout << "SwizzleZ: " << SwizzleZ << "\n";
-    std::cout << "SwizzleY: " << SwizzleY << "\n";
-    std::cout << "SwizzleX: " << SwizzleX << "\n";
-    std::cout << "NumFormat: " << NumFormat << "\n";
-    std::cout << "GradExpAdjustV: " << GradExpAdjustV << "\n";
-    std::cout << "GradExpAdjustH: " << GradExpAdjustH << "\n";
-    std::cout << "LODBias: " << LODBias << "\n";
-    std::cout << "MinAnisoWalk: " << MinAnisoWalk << "\n";
-    std::cout << "MagAnisoWalk: " << MagAnisoWalk << "\n";
-    std::cout << "MaxMipLevel: " << MaxMipLevel << "\n";
-    std::cout << "MinMipLevel: " << MinMipLevel << "\n";
-    std::cout << "VolMinFilter: " << VolMinFilter << "\n";
-    std::cout << "VolMagFilter: " << VolMagFilter << "\n";
-    std::cout << "MipAddress: " << MipAddress << "\n";
-    std::cout << "PackedMips: " << PackedMips << "\n";
-    std::cout << "Dimension: " << Dimension << "\n";
-    std::cout << "AnisoBias: " << AnisoBias << "\n";
-    std::cout << "TriClamp: " << TriClamp << "\n";
-    std::cout << "ForceBCWtoMax: " << ForceBCWtoMax << "\n";
-    std::cout << "BorderColor: " << BorderColor << "\n";
-    std::cout << "\n";
-
     int mipMapLevels = MaxMipLevel - MinMipLevel;
     untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat, Depth, gpuDimension);
 }
