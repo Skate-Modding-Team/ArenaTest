@@ -791,7 +791,7 @@ void read_RW4_textures_and_write_to_DDS(std::string inputfile) {
                 inputFile.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(offset2));
                 std::string name = names[i].first;
 
-                write_ps3_textures_to_DDS(name, buffer, curwidth, curheight, mips, texinfops3.format);
+                write_ps3_textures_to_DDS(name, buffer, curwidth, curheight, mips, texinfops3.format, swapEndianness(texinfops3.storeType));
             }
         }
         else if (platform == "WII") {

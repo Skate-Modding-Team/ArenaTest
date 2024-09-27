@@ -732,13 +732,85 @@ void getTextureInformationAndUntile(std::string name, std::vector<uint8_t>& buff
     untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat, Depth, gpuDimension);
 }
 
-void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer, int curwidth, int curheight, int mipMapLevels, int format) {
+void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer, int curwidth, int curheight, int mipMapLevels, int format, uint32_t storeType) {
     DirectX::DDS_PIXELFORMAT pixelFormat{};
     auto ps3It = pixelFormatsPS3.find(format);
     if (ps3It != pixelFormatsPS3.end()) {
         pixelFormat = ps3It->second;
     }
-    writeDDS(filename, buffer, curwidth, curheight, mipMapLevels, pixelFormat, "GPUDIMENSION_2D");
+
+    int texelPitch = 0;
+    bool compressed;
+    if (format == 0x86 or format == 0x81) { //DXT1
+        texelPitch = 8;
+        compressed = true;
+    }
+    else if (format == 0x87 or format == 0x88) { //DXT3, DXT5
+        texelPitch = 16;
+        compressed = true;
+    }
+    else if (format == 0xA5) { //A8R8G8B8
+        texelPitch = 4;
+        compressed = false;
+    }
+
+    int mipWidth = curwidth;
+    int mipHeight = curheight;
+
+    int textureSize = 0; // calculate texture size to get right offsets for cubemap 
+    for (int level = 0; level < mipMapLevels; level++) {
+        int initialmipSize = 0;
+        if (compressed) {
+            initialmipSize = max(1, ((mipWidth + 3) / 4)) * max(1, ((mipHeight + 3) / 4)) * texelPitch;
+        }
+        else {
+            initialmipSize = max(1, mipWidth) * max(1, mipHeight) * texelPitch;
+        }
+        textureSize += initialmipSize;
+        mipWidth = max(1, mipWidth / 2);
+        mipHeight = max(1, mipHeight / 2);
+    }
+
+    std::string gpuDimension;
+    if (storeType == 2) { // GPUDIMENSION_2D, TwoD
+        gpuDimension = "GPUDIMENSION_2D";
+    }
+    else if (storeType == 1) { // GPUDIMENSION_1D, OneD
+        gpuDimension = "GPUDIMENSION_1D";
+    }
+    else if (storeType == 3) { // GPUDIMENSION_3D, ThreeD
+        gpuDimension = "GPUDIMENSION_3D";
+    }
+    else if (storeType == 0x10002) { // GPUDIMENSION_CUBEMAP, Stack
+        gpuDimension = "GPUDIMENSION_CUBEMAP";
+    }
+
+    if (gpuDimension == "GPUDIMENSION_CUBEMAP") {
+        //calculate position for padding between textures in cubemap textures and remove it.
+        int texAmt = 6; //we assume cubemap always has 6 textures: posx, negx, posy, negy, posz, negz.
+        int leftOverPaddingSize = buffer.size() - textureSize * texAmt;
+        //the last texture won't have padding in the end so we divide by 5 to get padding between each texture.
+        int padAmt = texAmt - 1;
+        int padSize = leftOverPaddingSize / padAmt;
+
+        //removing the padding from the whole data
+        int currentOffset = 0;
+        for (int texture = 0; texture < padAmt; texture++) {
+            // Calculate where the padding starts and ends, taking the offset into account
+            int textureEnd = (texture + 1) * textureSize + currentOffset;
+            int paddingStart = textureEnd;
+            int paddingEnd = paddingStart + padSize;
+
+            // Ensure the indices are within bounds before attempting to erase
+            if (paddingStart >= 0 && paddingEnd <= buffer.size()) {
+                buffer.erase(buffer.begin() + paddingStart, buffer.begin() + paddingEnd);
+                // Update the current offset after removal
+                currentOffset -= padSize;
+            }
+        }
+    }
+
+    writeDDS(filename, buffer, curwidth, curheight, mipMapLevels, pixelFormat, gpuDimension);
 }
 
 void unswizzle_wii_textures_and_write_to_DDS(std::string filename, const std::vector<uint8_t>& data, int width, int height, int mipMapLevels, DirectX::DDS_PIXELFORMAT pixelFormat) {
