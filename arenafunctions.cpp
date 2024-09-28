@@ -426,27 +426,6 @@ struct TextureInformationX360
     unsigned char GPUTEXTURE_FETCH_CONSTANT[0x18];
 };
 
-struct TextureInformationX360old
-{
-    uint32_t resourcetype;      //0x00000003
-    uint32_t referencecount;    //0x00000001
-    uint32_t fence;             //0x00000000
-    uint32_t readfence;         //0x00000000
-    uint32_t identifier;        //0x00000000
-    uint32_t baseflush;         //0xffff0000
-    uint32_t mipflush;          //0xffff0000
-    uint32_t unknown7;
-    uint16_t unknown8;
-    uint8_t unknown9;
-    uint8_t format;
-    uint8_t unknown10;
-    uint8_t height;
-    uint16_t width;
-    uint32_t unknown11;
-    uint32_t mips;
-    uint32_t unknown12; //mips something?
-};
-
 struct TextureInformationWII
 {
     uint32_t unknown;
