@@ -11,6 +11,7 @@
 #include <bitset>
 
 const std::unordered_map<uint32_t, DirectX::DDS_PIXELFORMAT> pixelFormatsPS3 = {
+    {0x85, DirectX::DDSPF_A8R8G8B8},
     {0x86, DirectX::DDSPF_DXT1},
     {0x87, DirectX::DDSPF_DXT3},
     {0x88, DirectX::DDSPF_DXT5},
@@ -463,7 +464,7 @@ std::vector<uint8_t> UnswizzleCMPR(const std::vector<uint8_t>& data, int width, 
     return untileData;
 }
 
-void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uint8_t> src, int width, int height, int mipMapLevels, int PackedMips, int format, int Depth, std::string gpuDimension) {
+void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uint8_t> src, int width, int height, int mipMapLevels, int PackedMips, int format, int Depth, bool Tiled, std::string gpuDimension) {
     //untiles mips. :)
     DirectX::DDS_PIXELFORMAT pixelFormat{};
     std::string gpuFormat = GetGPUTEXTUREFORMAT(format);
@@ -483,26 +484,23 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
     int syOffset = 0;
     bool firsttime = true;
     bool compressed = true;
+
     if (gpuFormat == "GPUTEXTUREFORMAT_DXT1") {//DXT1
         blockSize = 4;
-        swapEndianArray(src, 2);
         texelPitch = 8;
     }
     else if (gpuFormat == "GPUTEXTUREFORMAT_DXT2_3" or gpuFormat == "GPUTEXTUREFORMAT_DXT4_5" or gpuFormat == "GPUTEXTUREFORMAT_DXN") {//DXT3, DXT5, DXN, 
         blockSize = 4;
-        swapEndianArray(src, 2);
         texelPitch = 16;
     }
     else if (gpuFormat == "GPUTEXTUREFORMAT_8_8_8_8") {//A8R8G8B8
         blockSize = 1;
         compressed = false;
-        swapEndianArray(src, 4);
         texelPitch = 4;
     }
     else if (gpuFormat == "GPUTEXTUREFORMAT_5_6_5") {//R5G6B5
         blockSize = 1;
         compressed = false;
-        swapEndianArray(src, 2);
         texelPitch = 2;
     }
     else if (gpuFormat == "GPUTEXTUREFORMAT_8") {//A8
@@ -511,125 +509,160 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
         texelPitch = 1;
     }
 
+    if (compressed) {
+        swapEndianArray(src, 2);
+    }
+    else {
+        swapEndianArray(src, texelPitch);
+    }
+
     //add cubemap stuff
-    int numFaces = gpuDimension == "GPUDIMENSION_CUBEMAP" ? 6 : 1; //if cubemap have 6 faces.
+    int numFaces = gpuDimension == "GPUDIMENSION_CUBEMAP" ? 6 : 1; //if cubemap, have 6 faces.
     std::vector<std::vector<uint8_t>> textures(numFaces);
 
     int chunksize = 4096 * texelPitch / blockSize;
     int smallestmipsize;
 
     //smallest mip size is calculated based on smallest possible mip arrangement with current aspect ratio aligned to 0x1000.
-    double divisor = static_cast<double>(min(height, width)) / 16;
+    //there is probably better way to calculate smallest size but this works now.
+    double divisor;
+    if (height >= 16 and width >= 16) {
+        divisor = static_cast<double>(min(height, width)) / 16;
+    }
+    else {
+        divisor = static_cast<double>(min(height, width)) / static_cast<double>(min(height, width));
+    }
     smallestmipsize = Align(static_cast<int>(32 * (static_cast<double>(max(height, width)) / divisor) * texelPitch / blockSize), 4096);
 
     //std::cout << "w: " << width << " h: " << height << " f: " << format << " " << gpuFormat << " m: " << mipMapLevels << "\n";
     if (mipMapLevels == 0) {
         mipMapLevels = 1;
     }
-    for (int level = 0; level < mipMapLevels; level++) {
-        int sxOffset = 0;
-        for (int face = 0; face < numFaces; face++) {
-            if (compressed) {
-                tiledWidth = Align(mipWidth, 128);
-                tiledHeight = Align(mipHeight, 128);
-                initialmipSize = max(1, ((mipWidth + 3) / 4)) * max(1, ((mipHeight + 3) / 4)) * texelPitch;
-                tiledmipSize = max(1, ((tiledWidth + 3) / 4)) * max(1, ((tiledHeight + 3) / 4)) * texelPitch;
-            }
-            else {
-                tiledWidth = mipWidth;
-                tiledHeight = mipHeight;
-                initialmipSize = max(1, mipWidth) * max(1, mipHeight) * texelPitch;
-                tiledmipSize = Align(initialmipSize, smallestmipsize);
-            }
-            int endoffsetforsrc = mipLevelOffset + tiledmipSize;
 
-            std::vector<uint8_t> mipsrc(src.begin() + mipLevelOffset, src.begin() + endoffsetforsrc);
+    if (Tiled) {
+        for (int level = 0; level < mipMapLevels; level++) {
+            int sxOffset = 0;
+            for (int face = 0; face < numFaces; face++) {
+                if (compressed) {
+                    tiledWidth = Align(mipWidth, 128);
+                    tiledHeight = Align(mipHeight, 128);
+                    initialmipSize = max(1, ((mipWidth + 3) / 4)) * max(1, ((mipHeight + 3) / 4)) * texelPitch;
+                    tiledmipSize = max(1, ((tiledWidth + 3) / 4)) * max(1, ((tiledHeight + 3) / 4)) * texelPitch;
+                }
+                else {
+                    tiledWidth = mipWidth;
+                    tiledHeight = mipHeight;
+                    initialmipSize = max(1, mipWidth) * max(1, mipHeight) * texelPitch;
+                    tiledmipSize = Align(initialmipSize, smallestmipsize);
+                }
+                int endoffsetforsrc = mipLevelOffset + tiledmipSize;
 
-            int tiledBlockWidth = tiledWidth / blockSize;
-            int originalBlockWidth = max(1, mipWidth / blockSize);
-            int tiledBlockHeight = tiledHeight / blockSize;
-            int originalBlockHeight = max(1, mipHeight / blockSize);
+                std::vector<uint8_t> mipsrc(src.begin() + mipLevelOffset, src.begin() + endoffsetforsrc);
 
-            if (initialmipSize < (32 * 64 * texelPitch) and mipMapLevels > 1) {
-                //processing smallest mips
-                if (mipWidth <= 16 or mipHeight <= 16) {
-                    if (width > height) {
-                        // 16 * width/height * 16
-                        //example of this type of scenario
-                        //sxOffset
-                        //    4   8       16              32
-                        //    #   ##      ####            ########                         syOffset
-                        //                                ########                        
-                        //                                                                
-                        //                                                                
-                        //################                                                 4
-                        //################                                                
-                        //################                                                
-                        //################                                                
-                        //################################                                 8
-                        //################################                                
-                        //################################                                
-                        //################################                                
-                        //################################                                
-                        //################################                                
-                        //################################                                
-                        //################################
-                        //                                 
-                        //################################################################ 16\/
-                        if (mipHeight > 2) {
-                            syOffset = originalBlockHeight;
+                int tiledBlockWidth = tiledWidth / blockSize;
+                int originalBlockWidth = max(1, mipWidth / blockSize);
+                int tiledBlockHeight = tiledHeight / blockSize;
+                int originalBlockHeight = max(1, mipHeight / blockSize);
+
+                if (initialmipSize < (32 * 64 * texelPitch) and mipMapLevels > 1) {
+                    //processing smallest mips
+                    if (mipWidth <= 16 or mipHeight <= 16) {
+                        if (width > height) {
+                            // 16 * width/height * 16
+                            //example of this type of scenario
+                            //sxOffset
+                            //    4   8       16              32
+                            //    #   ##      ####            ########                         syOffset
+                            //                                ########                        
+                            //                                                                
+                            //                                                                
+                            //################                                                 4
+                            //################                                                
+                            //################                                                
+                            //################                                                
+                            //################################                                 8
+                            //################################                                
+                            //################################                                
+                            //################################                                
+                            //################################                                
+                            //################################                                
+                            //################################                                
+                            //################################
+                            //                                 
+                            //################################################################ 16\/
+                            if (mipHeight > 2) {
+                                syOffset = originalBlockHeight;
+                            }
+                            else {
+                                syOffset = 0;
+                                sxOffset = 4 * mipWidth / blockSize;
+                            }
                         }
                         else {
-                            syOffset = 0;
-                            sxOffset = 4 * mipWidth / blockSize;
-                        }
-                    }
-                    else {
-                        //example of this type of scenario
-                        //    4	  8	      >16
-                        //    ############ ################
-                        //    ############ ################
-                        //    ############ ################
-                        //    ############ ################
-                        //#       ######## ################ 4
-                        //        ######## ################
-                        //        ######## ################
-                        //        ######## ################
-                        //##               ################ 8
-                        //##               ################
-                        //                 ################
-                        //                 ################
-                        //                 ################
-                        //                 ################
-                        //                 ################
-                        //                 ################
-                        if (mipWidth > 2) {
-                            sxOffset = originalBlockWidth;
-                        }
-                        else {
-                            sxOffset = 0;
-                            syOffset = 4 * mipHeight / blockSize;
+                            //example of this type of scenario
+                            //    4	  8	      >16
+                            //    ############ ################
+                            //    ############ ################
+                            //    ############ ################
+                            //    ############ ################
+                            //#       ######## ################ 4
+                            //        ######## ################
+                            //        ######## ################
+                            //        ######## ################
+                            //##               ################ 8
+                            //##               ################
+                            //                 ################
+                            //                 ################
+                            //                 ################
+                            //                 ################
+                            //                 ################
+                            //                 ################
+                            if (mipWidth > 2) {
+                                sxOffset = originalBlockWidth;
+                            }
+                            else {
+                                sxOffset = 0;
+                                syOffset = 4 * mipHeight / blockSize;
+                            }
                         }
                     }
                 }
+
+                std::vector<uint8_t> mipdst = UntileCompressedXbox360Texture(mipsrc, tiledBlockWidth, originalBlockWidth, tiledBlockHeight,
+                    originalBlockHeight, texelPitch, sxOffset, syOffset);
+
+                if (mipdst.size() < 0x80) {
+                    mipdst.resize(0x80);
+                }
+
+                textures[face].insert(textures[face].end(), mipdst.begin(), mipdst.begin() + initialmipSize);
+                mipdst.clear();
+
+                if (src.size() > mipLevelOffset + tiledmipSize) {
+                    mipLevelOffset += tiledmipSize;
+                }
+                mipsrc.clear();
             }
 
-            std::vector<uint8_t> mipdst = UntileCompressedXbox360Texture(mipsrc, tiledBlockWidth, originalBlockWidth, tiledBlockHeight,
-                originalBlockHeight, texelPitch, sxOffset, syOffset);
-            if (mipdst.size() < 0x80) {
-                mipdst.resize(0x80);
-            }
-            textures[face].insert(textures[face].end(), mipdst.begin(), mipdst.begin() + initialmipSize);
-            mipdst.clear();
-
-            if (src.size() > mipLevelOffset + tiledmipSize) {
-                mipLevelOffset += tiledmipSize;
-            }
-            mipsrc.clear();
+            mipWidth = max(1, mipWidth / 2);
+            mipHeight = max(1, mipHeight / 2);
         }
+    }
+    else {
+        for (int level = 0; level < mipMapLevels; level++) {
+            for (int face = 0; face < numFaces; face++) {
+                if (compressed) {
+                    initialmipSize = max(1, ((mipWidth + 3) / 4)) * max(1, ((mipHeight + 3) / 4)) * texelPitch;
+                }
+                else {
+                    initialmipSize = max(1, mipWidth) * max(1, mipHeight) * texelPitch;
+                }
+                textures[face].insert(textures[face].end(), src.begin(), src.begin() + initialmipSize);
+            }
 
-        mipWidth = max(1, mipWidth / 2);
-        mipHeight = max(1, mipHeight / 2);
+            mipWidth = max(1, mipWidth / 2);
+            mipHeight = max(1, mipHeight / 2);
+        }
     }
 
     for (int face = 0; face < numFaces; face++) {
@@ -729,7 +762,8 @@ void getTextureInformationAndUntile(std::string name, std::vector<uint8_t>& buff
     }
 
     int mipMapLevels = MaxMipLevel - MinMipLevel;
-    untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat, Depth, gpuDimension);
+
+    untile_xbox_textures_and_write_to_DDS(name, buffer, Width, Height, mipMapLevels, PackedMips, DataFormat, Depth, Tiled, gpuDimension);
 }
 
 void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer, int curwidth, int curheight, int mipMapLevels, int format, uint32_t storeType) {
@@ -750,6 +784,10 @@ void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer
         compressed = true;
     }
     else if (format == 0xA5) { //A8R8G8B8
+        texelPitch = 4;
+        compressed = false;
+    }
+    else if (format == 0x85) { //R5G6B5
         texelPitch = 4;
         compressed = false;
     }
