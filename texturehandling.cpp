@@ -10,6 +10,31 @@
 #include <unordered_map>
 #include <bitset>
 
+static bool operator==(const DirectX::DDS_PIXELFORMAT& lhs, const DirectX::DDS_PIXELFORMAT& rhs) {
+    return lhs.size == rhs.size &&
+        lhs.flags == rhs.flags &&
+        lhs.fourCC == rhs.fourCC &&
+        lhs.RGBBitCount == rhs.RGBBitCount &&
+        lhs.RBitMask == rhs.RBitMask &&
+        lhs.GBitMask == rhs.GBitMask &&
+        lhs.BBitMask == rhs.BBitMask &&
+        lhs.ABitMask == rhs.ABitMask;
+}
+
+std::string GetDXTEXTUREFORMATName(const DirectX::DDS_PIXELFORMAT& format) {
+    if (format == DirectX::DDSPF_DXT1) return "GPUTEXTUREFORMAT_DXT1";
+    if (format == DirectX::DDSPF_DXT2) return "GPUTEXTUREFORMAT_DXT2_3";
+    if (format == DirectX::DDSPF_DXT3) return "GPUTEXTUREFORMAT_DXT2_3";
+    if (format == DirectX::DDSPF_DXT4) return "GPUTEXTUREFORMAT_DXT4_5";
+    if (format == DirectX::DDSPF_DXT5) return "GPUTEXTUREFORMAT_DXT4_5";
+    if (format == DirectX::DDSPF_BC5_SNORM) return "GPUTEXTUREFORMAT_DXN";
+    if (format == DirectX::DDSPF_A8R8G8B8) return "GPUTEXTUREFORMAT_8_8_8_8";
+    if (format == DirectX::DDSPF_R5G6B5) return "GPUTEXTUREFORMAT_5_6_5";
+    if (format == DirectX::DDSPF_A8) return "GPUTEXTUREFORMAT_8";
+    // Add more entries as needed
+    return "Unknown format";
+}
+
 const std::unordered_map<uint32_t, DirectX::DDS_PIXELFORMAT> pixelFormatsPS3 = {
     {0x85, DirectX::DDSPF_A8R8G8B8},
     {0x86, DirectX::DDSPF_DXT1},
@@ -168,6 +193,7 @@ DirectX::DDS_PIXELFORMAT GetDDSTEXTUREFORMAT(DWORD dwTextureType)
     case 62: return DirectX::DDSPF_A8R8G8B8; //"GPUTEXTUREFORMAT_8_8_8_8_GAMMA_EDRAM";
     case 63: return DirectX::DDSPF_A8R8G8B8; //"GPUTEXTUREFORMAT_2_10_10_10_FLOAT_EDRAM";
     default: return DirectX::DDSPF_A8R8G8B8; //"-unknown-";
+    // Modify this as needed
     ;}
 }
 
@@ -241,6 +267,42 @@ std::string GetGPUTEXTUREFORMAT(DWORD dwTextureType)
     case 63: return "GPUTEXTUREFORMAT_2_10_10_10_FLOAT_EDRAM";
     default: return "-unknown-";
     }
+}
+
+void GetTextureFormatProperties(const std::string& gpuFormat,
+    int& blockSize,
+    int& texelPitch,
+    bool& compressed) {
+
+    // Determine properties based on gpuFormat
+    if (gpuFormat == "GPUTEXTUREFORMAT_DXT1") { // DXT1
+        blockSize = 4;
+        compressed = true;
+        texelPitch = 8;
+    }
+    else if (gpuFormat == "GPUTEXTUREFORMAT_DXT2_3" ||
+        gpuFormat == "GPUTEXTUREFORMAT_DXT4_5" ||
+        gpuFormat == "GPUTEXTUREFORMAT_DXN") { // DXT3, DXT5, DXN
+        blockSize = 4;
+        compressed = true;
+        texelPitch = 16;
+    }
+    else if (gpuFormat == "GPUTEXTUREFORMAT_8_8_8_8") { // A8R8G8B8
+        blockSize = 1;
+        compressed = false;
+        texelPitch = 4;
+    }
+    else if (gpuFormat == "GPUTEXTUREFORMAT_5_6_5") { // R5G6B5
+        blockSize = 1;
+        compressed = false;
+        texelPitch = 2;
+    }
+    else if (gpuFormat == "GPUTEXTUREFORMAT_8") { // A8
+        blockSize = 1;
+        compressed = false;
+        texelPitch = 1;
+    }
+    // Add more entries as needed
 }
 
 void swapEndianArray(std::vector<unsigned char>& data, size_t elementSize)
@@ -321,8 +383,11 @@ std::vector<uint8_t> UntileCompressedXbox360Texture(const std::vector<uint8_t>& 
     return dst;
 }
 
-bool readDDS(const std::string& filename, std::vector<uint8_t>& textureArray, DirectX::DDS_HEADER& header) {
+void readDDS(const std::string& filename) {
     std::ifstream infile(filename, std::ios::in | std::ios::binary);
+
+    std::vector<uint8_t> textureArray;
+    DirectX::DDS_HEADER header{};
 
     if (!infile.is_open()) {
         // cannot open
@@ -338,13 +403,41 @@ bool readDDS(const std::string& filename, std::vector<uint8_t>& textureArray, Di
 
     // Validate DDS header and perform additional checks if necessary
     // ...
+    std::cout << "size:" << header.size << "\n";
+    std::cout << "height:" << header.height << "\n";
+    std::cout << "width:" << header.width << "\n";
+    std::cout << "mipcount:" << header.mipMapCount << "\n";
+
+    const DirectX::DDS_PIXELFORMAT& format = header.ddspf;
+    std::cout << "Pixel Format Size: " << format.size << "\n";
+    std::cout << "Pixel Format Flags: " << format.flags << "\n";
+
+    std::cout << "Format: " << GetDXTEXTUREFORMATName(format) << "\n";
+
+
+    if (format.flags & DDS_FOURCC) {
+        std::cout << "Format: FOURCC (Four Character Code)\n";
+        std::cout << "FourCC: " << std::string(reinterpret_cast<const char*>(&format.fourCC), 4) << "\n";
+    }
+    if (format.flags & DDS_RGB) {
+        std::cout << "Format: RGB\n";
+        std::cout << "RGB Bit Count: " << format.RGBBitCount << "\n";
+        std::cout << "Red Bit Mask: " << std::hex << format.RBitMask << std::dec << "\n";
+        std::cout << "Green Bit Mask: " << std::hex << format.GBitMask << std::dec << "\n";
+        std::cout << "Blue Bit Mask: " << std::hex << format.BBitMask << std::dec << "\n";
+        if (format.flags & DDS_ALPHAPIXELS) {
+            std::cout << "Alpha Bit Mask: " << std::hex << format.ABitMask << std::dec << "\n";
+        }
+    }
+    if (format.flags & DDS_LUMINANCE) {
+        std::cout << "Format: Luminance\n";
+    }
 
     // Read texture data
     textureArray.resize(header.size - sizeof(DirectX::DDS_HEADER));
     infile.read(reinterpret_cast<char*>(textureArray.data()), textureArray.size());
 
     infile.close();
-    return true;
 }
 
 void writeDDS(std::string filename, std::vector<uint8_t> texturearray, int width, int height, int mipMapLevels, DirectX::DDS_PIXELFORMAT pixelFormat, std::string gpuDimension, int Depth = 0)
@@ -485,29 +578,7 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
     bool firsttime = true;
     bool compressed = true;
 
-    if (gpuFormat == "GPUTEXTUREFORMAT_DXT1") {//DXT1
-        blockSize = 4;
-        texelPitch = 8;
-    }
-    else if (gpuFormat == "GPUTEXTUREFORMAT_DXT2_3" or gpuFormat == "GPUTEXTUREFORMAT_DXT4_5" or gpuFormat == "GPUTEXTUREFORMAT_DXN") {//DXT3, DXT5, DXN, 
-        blockSize = 4;
-        texelPitch = 16;
-    }
-    else if (gpuFormat == "GPUTEXTUREFORMAT_8_8_8_8") {//A8R8G8B8
-        blockSize = 1;
-        compressed = false;
-        texelPitch = 4;
-    }
-    else if (gpuFormat == "GPUTEXTUREFORMAT_5_6_5") {//R5G6B5
-        blockSize = 1;
-        compressed = false;
-        texelPitch = 2;
-    }
-    else if (gpuFormat == "GPUTEXTUREFORMAT_8") {//A8
-        blockSize = 1;
-        compressed = false;
-        texelPitch = 1;
-    }
+    GetTextureFormatProperties(gpuFormat, blockSize, texelPitch, compressed);
 
     if (compressed) {
         swapEndianArray(src, 2);
@@ -535,9 +606,7 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
     smallestmipsize = Align(static_cast<int>(32 * (static_cast<double>(max(height, width)) / divisor) * texelPitch / blockSize), 4096);
 
     //std::cout << "w: " << width << " h: " << height << " f: " << format << " " << gpuFormat << " m: " << mipMapLevels << "\n";
-    if (mipMapLevels == 0) {
-        mipMapLevels = 1;
-    }
+    mipMapLevels += 1; //0 means 1
 
     if (Tiled) {
         for (int level = 0; level < mipMapLevels; level++) {
@@ -568,7 +637,6 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
                     //processing smallest mips
                     if (mipWidth <= 16 or mipHeight <= 16) {
                         if (width > height) {
-                            // 16 * width/height * 16
                             //example of this type of scenario
                             //sxOffset
                             //    4   8       16              32
@@ -590,8 +658,8 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
                             //################################
                             //                                 
                             //################################################################ 16\/
-                            if (mipHeight > 2) {
-                                syOffset = originalBlockHeight;
+                            if (mipHeight > 2 / max(1, 16 / height)) {
+                                syOffset = originalBlockHeight * max(1, 16 / height);
                             }
                             else {
                                 syOffset = 0;
@@ -617,8 +685,8 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
                             //                 ################
                             //                 ################
                             //                 ################
-                            if (mipWidth > 2) {
-                                sxOffset = originalBlockWidth;
+                            if (mipWidth > 2 / max(1, 16 / width)) {
+                                sxOffset = originalBlockWidth * max(1, 16 / width);
                             }
                             else {
                                 sxOffset = 0;
