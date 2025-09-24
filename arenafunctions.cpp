@@ -775,7 +775,7 @@ void read_RW4_textures_and_write_to_DDS(std::string inputfile) {
         }
         else if (platform == "WII") {
             std::vector<TextureInformationWII> texinfoswii;
-            for (int i = 0; i < swapEndianness(header.uiItemsCount); ++i) {
+            for (int i = 0; i < offsetstoinfos.size(); ++i) {
                 inputFile.seekg(offsetstoinfos[i]);
                 TextureInformationWII texinfowii{};
                 inputFile.read(reinterpret_cast<char*>(&texinfowii), sizeof(texinfowii));
@@ -797,6 +797,7 @@ void read_RW4_textures_and_write_to_DDS(std::string inputfile) {
                 inputFile.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(offset2));
                 std::string name = names[i].first;
 
+                std::cout << name;
                 if (name == "") {
                     if (i == 0) {
                         name = filename;
@@ -846,7 +847,9 @@ void processFilesInFolder(const std::string& folderPath) {
 
 //for testing purposes
 int main() {
-    std::string folderPath = "";
+    std::string folderPath = "C:/Users/tuukk/Desktop/ArenaTest-main/textureArenas";
     processFilesInFolder(folderPath);
+    //std::string filename = "C:/Users/tuukk/Desktop/ArenaTest-main/DDS/reflection_blurred_sky_arena_0x0000730903e3870a.Texture.dds";
+    //readDDS(filename);
     return 0;
 }

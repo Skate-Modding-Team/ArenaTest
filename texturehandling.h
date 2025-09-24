@@ -19,3 +19,5 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
 void write_ps3_textures_to_DDS(std::string filename, std::vector<uint8_t> buffer, int curwidth, int curheight, int mipMapLevels, int format, uint32_t storeType);
 
 void unswizzle_wii_textures_and_write_to_DDS(std::string filename, const std::vector<uint8_t>& data, int width, int height, int mipMapLevels, DirectX::DDS_PIXELFORMAT pixelFormat);
+
+void readDDS(const std::string& filename);

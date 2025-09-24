@@ -87,12 +87,17 @@ int breverse(int num, int numBits) {
     return result;
 }
 
-int extractDwordValue(DWORD dwordValue, int size, int offset) {
-    return (dwordValue >> offset) & ((1 << size) - 1);
+int extractDwordValue(uint32_t dwordValue, int size, int offset) {
+    // Ensure mask handles all bit sizes correctly without overflow
+    uint32_t mask = (size == 32) ? 0xFFFFFFFF : ((1u << size) - 1);
+
+    // Shift right by the offset, then apply the mask to extract the bit field
+    return (dwordValue >> offset) & mask;
 }
 
 int extractValue(unsigned char* GPUTEXTURE_FETCH_CONSTANT, int size, int offset) {
     DWORD dwordValue = *(reinterpret_cast<const DWORD*>(GPUTEXTURE_FETCH_CONSTANT));
+    std::cout << std::hex << dwordValue << "\n";
     return breverse(extractDwordValue(dwordValue, size, offset), size);
 }
 
@@ -383,6 +388,193 @@ std::vector<uint8_t> UntileCompressedXbox360Texture(const std::vector<uint8_t>& 
     return dst;
 }
 
+void UntileSurface(LPPOINT point, uint32_t width, uint8_t* destination, uint32_t rowPitch, uint8_t* source, uint32_t height, LPRECT rect, uint32_t texelPitch)
+{
+    // Use stack-based defaults if parameters are NULL
+    tagRECT l_localRect;
+    tagPOINT l_localPoint;
+    LPRECT l_rect = rect;
+
+    // Create default rectangle if none provided
+    if (!rect)
+    {
+        l_localRect.left = 0;
+        l_localRect.top = 0;
+        l_localRect.right = width;
+        l_localRect.bottom = height;
+        l_rect = &l_localRect;
+    }
+
+    // Calculate rectangle dimensions
+    uint32_t l_rectWidth = l_rect->right - l_rect->left;
+    uint32_t l_rectHeight = l_rect->bottom - l_rect->top;
+
+    // Create default point if none provided
+    if (!point)
+    {
+        l_localPoint.x = 0;
+        l_localPoint.y = 0;
+        point = &l_localPoint;
+    }
+
+    // Calculate aligned width (round up to nearest multiple of 32)
+    uint32_t l_alignedWidth = (width + 31) & 0xFFFFFFE0;
+
+    // Prepare source data - make a copy if source and destination are the same
+    void* l_sourceData;
+    if (source == destination)
+    {
+        // Calculate size needed for the buffer (aligned to 4KB boundary)
+        uint32_t l_alignSize = (texelPitch * l_alignedWidth * ((height + 31) & 0xFFFFFFE0) + 4095) & 0xFFFFF000;
+        l_sourceData = _aligned_malloc(l_alignSize, 16u);
+        memcpy((uint8_t*)l_sourceData, source, l_alignSize);
+    }
+    else
+    {
+        l_sourceData = source;
+    }
+
+    // Calculate block size and shift based on texel pitch
+    uint32_t l_blockSize = 1 << ((texelPitch >> 4) - (texelPitch >> 2) + 3);
+    uint32_t l_blockShift = (texelPitch >> 2) + (texelPitch >> 1 >> (texelPitch >> 2));
+
+    // Calculate block alignment values
+    int l_rectLeft = l_rect->left;
+    uint32_t l_blockStartOffset = (~(l_blockSize - 1) & (l_rect->left + l_blockSize)) - l_rect->left;
+    int l_rightEdgeOffset = (~(l_blockSize - 1) & (l_rectLeft + l_rectWidth)) - l_rectLeft;
+
+    // Limit initial block width if it exceeds total width
+    uint32_t l_leftBlockWidth = l_blockStartOffset;
+    if (l_leftBlockWidth > l_rectWidth)
+        l_leftBlockWidth = l_rectWidth;
+
+    uint32_t l_bytesPerRow = l_leftBlockWidth << l_blockShift;
+
+    // Process each row of the rectangle
+    if (l_rectHeight)
+    {
+        uint32_t l_blockCountX = l_alignedWidth >> 5;
+
+        for (uint32_t l_yOffset = 0; l_yOffset < l_rectHeight; l_yOffset++)
+        {
+            uint32_t l_y = l_yOffset + l_rect->top;
+            uint32_t l_blockRowOffset = l_blockCountX * (l_y >> 5);
+            uint32_t l_yBit4 = (l_y >> 4) & 1;
+            uint32_t l_yBit3 = (l_y >> 3) & 1;
+            uint32_t l_yBit0Offset = 16 * (l_y & 1);
+            uint32_t l_yBits1_2Offset = 4 * (l_y & 6);
+            uint32_t l_yBit3Offset = 2 * l_yBit3;
+            uint32_t l_xPos = l_rect->left;
+            uint32_t l_xOffsetBits = l_yBits1_2Offset + (l_rect->left & 7);
+            uint32_t l_yBit3ShiftedOffset = l_yBit3 << (l_blockShift + 6);
+
+            // Calculate destination row offset
+            uint32_t l_rowOffset = rowPitch * (l_yOffset + point->y);
+
+            // Calculate swizzled address components for this block
+            uint32_t l_swizzledOffset = l_yBit0Offset + l_yBit3ShiftedOffset +
+                ((l_xOffsetBits << (l_blockShift + 6) >> 6) & 0xF) +
+                2 * (((l_xOffsetBits << (l_blockShift + 6) >> 6) & 0xFFFFFFF0) +
+                    (((l_blockRowOffset + (l_xPos >> 5)) << (l_blockShift + 6)) & 0x1FFFFFFF));
+
+            // Copy first block (may be partial)
+            memcpy(&destination[(point->x << l_blockShift) + l_rowOffset],
+                (uint8_t*)l_sourceData +
+                2048 * (((uint8_t)l_yBit4 + 2 * (((uint8_t)l_yBit3Offset + (uint8_t)(l_xPos >> 3)) & 3)) & 1) +
+                256 * ((l_swizzledOffset >> 6) & 7) +
+                32 * ((l_yBit4 + 2 * (((uint8_t)l_yBit3Offset + (uint8_t)(l_xPos >> 3)) & 3)) & 0xFFFFFFFE) +
+                8 * (l_swizzledOffset & 0xFFFFFE00) +
+                (l_swizzledOffset & 0x3F),
+                l_bytesPerRow);
+
+            // Process full blocks in the middle
+            uint32_t l_currentXOffset = l_blockStartOffset;
+            if ((int)l_blockStartOffset < l_rightEdgeOffset)
+            {
+                uint32_t l_blockBytes = l_blockSize << l_blockShift;
+
+                do
+                {
+                    uint32_t l_middleXPos = l_currentXOffset + l_rect->left;
+                    uint32_t l_middleXOffsetBits = (l_yBits1_2Offset + (l_middleXPos & 7)) << (l_blockShift + 6);
+
+                    uint32_t l_middleSwizzledOffset = l_yBit0Offset + l_yBit3ShiftedOffset +
+                        ((l_middleXOffsetBits >> 6) & 0xF) +
+                        2 * (((l_middleXOffsetBits >> 6) & 0xFFFFFFF0) +
+                            (((l_blockRowOffset + (l_middleXPos >> 5)) << (l_blockShift + 6)) & 0x1FFFFFFF));
+
+                    uint32_t l_middleYOffset = l_yBit4 + 2 * (((uint8_t)l_yBit3Offset + (uint8_t)(l_middleXPos >> 3)) & 3);
+
+                    memcpy(&destination[((l_currentXOffset + point->x) << l_blockShift) + l_rowOffset],
+                        (uint8_t*)l_sourceData +
+                        256 * (((l_middleSwizzledOffset >> 6) & 7) + 8 * (((uint8_t)l_yBit4 + 2 * (((uint8_t)l_yBit3Offset + (uint8_t)(l_middleXPos >> 3)) & 3)) & 1)) +
+                        32 * (l_middleYOffset & 0xFFFFFFFE) +
+                        8 * (l_middleSwizzledOffset & 0xFFFFFE00) +
+                        (l_middleSwizzledOffset & 0x3F),
+                        l_blockBytes);
+
+                    l_currentXOffset += l_blockSize;
+                } while (l_currentXOffset < l_rightEdgeOffset);
+            }
+
+            // Process the rightmost partial block if needed
+            if (l_currentXOffset < l_rectWidth)
+            {
+                uint32_t l_rightXPos = l_currentXOffset + l_rect->left;
+                uint32_t l_rightYOffset = l_yBit4 + 2 * (((uint8_t)l_yBit3Offset + (uint8_t)(l_rightXPos >> 3)) & 3);
+                uint32_t l_rightXOffsetBits = (l_yBits1_2Offset + (l_rightXPos & 7)) << (l_blockShift + 6);
+
+                uint32_t l_rightSwizzledOffset = l_yBit0Offset + l_yBit3ShiftedOffset +
+                    ((l_rightXOffsetBits >> 6) & 0xF) +
+                    2 * (((l_rightXOffsetBits >> 6) & 0xFFFFFFF0) +
+                        (((l_blockRowOffset + (l_rightXPos >> 5)) << (l_blockShift + 6)) & 0x1FFFFFFF));
+
+                memcpy(&destination[((l_currentXOffset + point->x) << l_blockShift) + l_rowOffset],
+                    (uint8_t*)l_sourceData +
+                    2048 * (l_rightYOffset & 1) +
+                    256 * ((l_rightSwizzledOffset >> 6) & 7) +
+                    32 * (l_rightYOffset & 0xFFFFFFFE) +
+                    8 * (l_rightSwizzledOffset & 0xFFFFFE00) +
+                    (l_rightSwizzledOffset & 0x3F),
+                    (l_rectWidth - l_currentXOffset) << l_blockShift);
+            }
+        }
+    }
+
+    // Free temporary buffer if created
+    if (source == destination)
+        _aligned_free(l_sourceData);
+}
+
+std::vector<uint8_t> UntileX360Surface(
+    uint8_t* tiledInput,
+    uint32_t textureWidth,
+    uint32_t textureHeight,
+    uint32_t outputBlockWidth,
+    uint32_t outputBlockHeight,
+    uint32_t bytesPerTexel,
+    uint32_t sxOffset = 0,
+    uint32_t syOffset = 0
+) {
+    std::vector<uint8_t> output;
+    uint32_t outputPitch = outputBlockWidth * bytesPerTexel;
+    output.resize(outputPitch * outputBlockHeight);
+
+    RECT inputRegion = {
+        static_cast<LONG>(sxOffset),
+        static_cast<LONG>(syOffset),
+        static_cast<LONG>(sxOffset + outputBlockWidth),
+        static_cast<LONG>(syOffset + outputBlockHeight)
+    };
+
+    POINT outputOffset = { 0, 0 };
+
+    UntileSurface(&outputOffset, textureWidth, output.data(), outputPitch, tiledInput,
+        textureHeight, &inputRegion, bytesPerTexel);
+
+    return output;
+}
+
 void readDDS(const std::string& filename) {
     std::ifstream infile(filename, std::ios::in | std::ios::binary);
 
@@ -439,6 +631,8 @@ void readDDS(const std::string& filename) {
 
     infile.close();
 }
+
+int unnamedcount = 0;
 
 void writeDDS(std::string filename, std::vector<uint8_t> texturearray, int width, int height, int mipMapLevels, DirectX::DDS_PIXELFORMAT pixelFormat, std::string gpuDimension, int Depth = 0)
 {
@@ -503,7 +697,15 @@ void writeDDS(std::string filename, std::vector<uint8_t> texturearray, int width
     }
 
     // Write DDS file
-    std::string fullFilePath = "DDS/" + filename + ".dds";
+    std::string fullFilePath;
+    if (filename == "") {
+        unnamedcount += 1;
+        fullFilePath = "DDS/Unnamed_" + std::to_string(unnamedcount) + ".dds";
+    }
+    else {
+        fullFilePath = "DDS/" + filename + ".dds";
+    }
+
     std::ofstream outfile(fullFilePath, std::ios::out | std::ios::binary);
 
     // Write DDS magic number
@@ -698,6 +900,9 @@ void untile_xbox_textures_and_write_to_DDS(std::string filename, std::vector<uin
 
                 std::vector<uint8_t> mipdst = UntileCompressedXbox360Texture(mipsrc, tiledBlockWidth, originalBlockWidth, tiledBlockHeight,
                     originalBlockHeight, texelPitch, sxOffset, syOffset);
+
+                //std::vector<uint8_t> mipdst = UntileX360Surface(
+                //    mipsrc.data(), tiledBlockWidth, tiledBlockHeight, originalBlockWidth, originalBlockHeight, texelPitch, sxOffset, syOffset);
 
                 if (mipdst.size() < 0x80) {
                     mipdst.resize(0x80);
